@@ -1,11 +1,17 @@
+const path = require('path')
+
 module.exports = (api, options) => {
   const fs = require('fs')
   const useThreads = process.env.NODE_ENV === 'production' && options.parallel
 
   api.chainWebpack(config => {
-    config.entry('app')
-      .clear()
-      .add('./src/main.ts')
+    config.resolveLoader.modules.prepend(path.join(__dirname, 'node_modules'))
+
+    if (!options.pages) {
+      config.entry('app')
+        .clear()
+        .add('./src/main.ts')
+    }
 
     config.resolve
       .extensions
@@ -24,7 +30,8 @@ module.exports = (api, options) => {
       loader: 'cache-loader',
       options: api.genCacheConfig('ts-loader', {
         'ts-loader': require('ts-loader/package.json').version,
-        'typescript': require('typescript/package.json').version
+        'typescript': require('typescript/package.json').version,
+        modern: !!process.env.VUE_CLI_MODERN_BUILD
       }, 'tsconfig.json')
     })
 
@@ -56,15 +63,19 @@ module.exports = (api, options) => {
       return options
     })
 
-    config
-      .plugin('fork-ts-checker')
-        .use(require('fork-ts-checker-webpack-plugin'), [{
-          vue: true,
-          tslint: options.lintOnSave !== false && fs.existsSync(api.resolve('tslint.json')),
-          formatter: 'codeframe',
-          // https://github.com/TypeStrong/ts-loader#happypackmode-boolean-defaultfalse
-          checkSyntacticErrors: useThreads
-        }])
+    if (!process.env.VUE_CLI_TEST) {
+      // this plugin does not play well with jest + cypress setup (tsPluginE2e.spec.js) somehow
+      // so temporarily disabled for vue-cli tests
+      config
+        .plugin('fork-ts-checker')
+          .use(require('fork-ts-checker-webpack-plugin'), [{
+            vue: true,
+            tslint: options.lintOnSave !== false && fs.existsSync(api.resolve('tslint.json')),
+            formatter: 'codeframe',
+            // https://github.com/TypeStrong/ts-loader#happypackmode-boolean-defaultfalse
+            checkSyntacticErrors: useThreads
+          }])
+    }
   })
 
   if (!api.hasPlugin('eslint')) {

@@ -6,7 +6,7 @@ The cli-ui exposes an API that allows augmenting the project configurations and 
 
 ## UI files
 
-Inside each installed vue-cli plugins, the cli-ui will try to load an optional `ui.js` file in the root folder of the plugin. It will also try to load a `vue-cli-ui.js` file in the user project root so the UI can be manually extended on a per-project basis (also useful to quickly prototype a plugin). Note that you can also use folders (for example `ui/index.js`).
+Inside each installed vue-cli plugins, the cli-ui will try to load an optional `ui.js` file in the root folder of the plugin. Note that you can also use folders (for example `ui/index.js`).
 
 The file should export a function which gets the api object as argument:
 
@@ -30,6 +30,20 @@ Here is an example folder structure for a vue-cli plugin using the UI API:
   - logo.png
 ```
 
+### Project local plugins
+
+If you need access to the plugin API in your project and don't want to create a full plugin for it, you can use the `vuePlugins.ui` option in your `package.json` file:
+
+```json
+{
+  "vuePlugins": {
+    "ui": ["my-ui.js"]
+  }
+}
+```
+
+Each file will need to export a function taking the plugin API as the first argument.
+
 ## Dev mode
 
 While building your plugin, you may want to run the cli-ui in Dev mode, so it will output useful logs to you:
@@ -50,7 +64,7 @@ vue ui -D
 
 You can add a project configuration with the `api.describeConfig` method.
 
-First you need to pass some informations:
+First you need to pass some information:
 
 ```js
 api.describeConfig({
@@ -81,7 +95,7 @@ api.describeConfig({
 })
 ```
 
-If you don't specify an icon, the plugin logo will be displayed if any (see [Logo](#logo)).
+If you don't specify an icon, the plugin logo will be displayed if any (see [Logo](./ui-info.md#logo)).
 
 ### Config files
 
@@ -336,6 +350,14 @@ api.describeTask({
 })
 ```
 
+You can also use a function for `match`:
+
+```js
+api.describeTask({
+  match: (command) => /vue-cli-service serve/.test(command),
+})
+```
+
 ### Task icon
 
 It can be either a [Material icon](https://material.io/tools/icons) code or a custom image (see [Public static files](#public-static-files)):
@@ -348,7 +370,7 @@ api.describeTask({
 })
 ```
 
-If you don't specify an icon, the plugin logo will be displayed if any (see [Logo](#logo)).
+If you don't specify an icon, the plugin logo will be displayed if any (see [Logo](./ui-info.md#logo)).
 
 ### Tasks parameters
 
@@ -416,7 +438,7 @@ api.describeTask({
     if (answers.mode) args.push('--mode', answers.mode)
     args.push('--dashboard')
   },
-  // Immediatly after running the task
+  // Immediately after running the task
   onRun: async ({ args, child, cwd }) => {
     // child: node child process
     // cwd: process working directory
@@ -1238,7 +1260,7 @@ You can also open a page instead when the user activates the suggestion with `ac
 ```js
 api.addSuggestion({
   id: 'com.my-name.my-suggestion',
-  type: 'action', // Required 
+  type: 'action', // Required
   label: 'Add vue-router',
   // Open a new tab
   actionLink: 'https://vuejs.org/'
@@ -1274,6 +1296,58 @@ In this example we only display the vue-router suggestion in the plugins view an
 
 Note: `addSuggestion` and `removeSuggestion` can be namespaced with `api.namespace()`.
 
+## Widgets
+
+You can register a widget for the project dashboard in your plugin ui file:
+
+```js
+registerWidget({
+  // Unique ID
+  id: 'org.vue.widgets.news',
+  // Basic infos
+  title: 'org.vue.widgets.news.title',
+  description: 'org.vue.widgets.news.description',
+  icon: 'rss_feed',
+  // Main component used to render the widget
+  component: 'org.vue.widgets.components.news',
+  // (Optional) Secondary component for widget 'fullscreen' view
+  detailsComponent: 'org.vue.widgets.components.news',
+  // Size
+  minWidth: 2,
+  minHeight: 1,
+  maxWidth: 6,
+  maxHeight: 6,
+  defaultWidth: 2,
+  defaultHeight: 3,
+  // (Optional) Limit the maximum number of this widget on the dashboard
+  maxCount: 1,
+  // (Optional) Add a 'fullscreen' button in widget header
+  openDetailsButton: true,
+  // (Optional) Default configuration for the widget
+  defaultConfig: () => ({
+    url: 'https://vuenews.fireside.fm/rss'
+  }),
+  // (Optional) Require user to configure widget when added
+  // You shouldn't use `defaultConfig` with this
+  needsUserConfig: true,
+  // (Optional) Display prompts to configure the widget
+  onConfigOpen: async ({ context }) => {
+    return {
+      prompts: [
+        {
+          name: 'url',
+          type: 'input',
+          message: 'org.vue.widgets.news.prompts.url',
+          validate: input => !!input // Required
+        }
+      ]
+    }
+  }
+})
+```
+
+Note: `registerWidget` can be namespaced with `api.namespace()`.
+
 ## Other methods
 
 ### hasPlugin
@@ -1308,6 +1382,21 @@ Get currently open project.
 
 ```js
 api.getProject()
+```
+
+### requestRoute
+
+Switch the user on a specific route in the web client.
+
+```js
+api.requestRoute({
+  name: 'foo',
+  params: {
+    id: 'bar'
+  }
+})
+
+api.requestRoute('/foobar')
 ```
 
 ## Public static files

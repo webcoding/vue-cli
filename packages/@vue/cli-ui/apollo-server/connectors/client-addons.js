@@ -8,7 +8,7 @@ let addons = []
 
 let baseUrl = process.env.VUE_APP_CLI_UI_URL
 if (typeof baseUrl === 'undefined') {
-  baseUrl = 'http://localhost:4000'
+  baseUrl = `http://localhost:${process.env.VUE_APP_GRAPHQL_PORT}`
 } else {
   baseUrl = baseUrl.replace(/ws:\/\/([a-z0-9_-]+:\d+).*/i, 'http://$1')
 }
@@ -56,7 +56,7 @@ function serve (req, res) {
     const resolvedPath = require.resolve(addon.path)
     const basePath = resolveModuleRoot(resolvedPath)
     if (basePath) {
-      res.sendFile(path.join(basePath, file))
+      res.sendFile(path.join(basePath, file), { maxAge: 0 })
     } else {
       res.status(404)
       res.send(`File not found (resolved: ${resolvedPath}`)

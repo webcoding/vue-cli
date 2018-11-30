@@ -1,57 +1,54 @@
-const fs = require('fs-extra')
-const path = require('path')
-const fsCachePath = path.resolve(__dirname, '.version')
+const semver = require('semver')
+const { loadOptions, saveOptions } = require('../options')
+
+let sessionCached
 
 module.exports = async function getVersions () {
+  if (sessionCached) {
+    return sessionCached
+  }
+
   let latest
-  const current = require(`../../package.json`).version
+  const local = require(`../../package.json`).version
   if (process.env.VUE_CLI_TEST || process.env.VUE_CLI_DEBUG) {
-    return {
-      latest: current,
-      current
-    }
+    return (sessionCached = {
+      current: local,
+      latest: local
+    })
   }
 
-  if (fs.existsSync(fsCachePath)) {
-    // if we haven't check for a new version in a week, force a full check
-    // before proceeding.
-    const lastChecked = (await fs.stat(fsCachePath)).mtimeMs
-    const daysPassed = (Date.now() - lastChecked) / (60 * 60 * 1000 * 24)
-    if (daysPassed > 7) {
-      const cachedCurrent = await fs.readFile(fsCachePath, 'utf-8')
-      await getAndCacheLatestVersion(cachedCurrent)
-    }
-    latest = await fs.readFile(fsCachePath, 'utf-8')
+  const { latestVersion = local, lastChecked = 0 } = loadOptions()
+  const cached = latestVersion
+  const daysPassed = (Date.now() - lastChecked) / (60 * 60 * 1000 * 24)
+
+  if (daysPassed > 1) {
+    // if we haven't check for a new version in a day, wait for the check
+    // before proceeding
+    latest = await getAndCacheLatestVersion(cached)
   } else {
-    // if the cache file doesn't exist, this is likely a fresh install
-    // so no need to check
-    latest = current
+    // Otherwise, do a check in the background. If the result was updated,
+    // it will be used for the next 24 hours.
+    getAndCacheLatestVersion(cached)
+    latest = cached
   }
 
-  // Do a check in the background. The cached file will be used for the next
-  // startup within a week.
-  getAndCacheLatestVersion(current)
-
-  return {
-    current,
+  return (sessionCached = {
+    current: local,
     latest
-  }
+  })
 }
 
 // fetch the latest version and save it on disk
 // so that it is available immediately next time
-let sentCheckRequest = false
-async function getAndCacheLatestVersion (current) {
-  if (sentCheckRequest) {
-    return
-  }
-  sentCheckRequest = true
+async function getAndCacheLatestVersion (cached) {
   const getPackageVersion = require('./getPackageVersion')
   const res = await getPackageVersion('vue-cli-version-marker', 'latest')
   if (res.statusCode === 200) {
     const { version } = res.body
-    if (version !== current) {
-      await fs.writeFile(fsCachePath, version)
+    if (semver.valid(version) && version !== cached) {
+      saveOptions({ lastestVersion: version, lastChecked: Date.now() })
+      return version
     }
   }
+  return cached
 }

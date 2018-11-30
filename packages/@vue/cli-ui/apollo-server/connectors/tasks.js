@@ -1,5 +1,4 @@
 const execa = require('execa')
-const terminate = require('terminate')
 const chalk = require('chalk')
 // Subs
 const channels = require('../channels')
@@ -14,9 +13,11 @@ const projects = require('./projects')
 // Utils
 const { log } = require('../util/logger')
 const { notify } = require('../util/notification')
+const { terminate } = require('../util/terminate')
 
 const MAX_LOGS = 2000
 const VIEW_ID = 'vue-project-tasks'
+const WIN_ENOENT_THRESHOLD = 500 // ms
 
 const tasks = new Map()
 
@@ -111,10 +112,10 @@ async function list ({ file = null, api = true } = {}, context) {
       })
     )
 
-    // Keep existing or ran tasks
+    // Keep existing running tasks
     list = list.filter(
       task => existing.get(task.id) ||
-      task.status !== 'idle'
+      task.status === 'running'
     )
 
     // Add the new tasks
@@ -133,9 +134,12 @@ function findOne (id, context) {
 }
 
 function getSavedData (id, context) {
-  return context.db.get('tasks').find({
+  let data = context.db.get('tasks').find({
     id
   }).value()
+  // Clone
+  if (data != null) data = JSON.parse(JSON.stringify(data))
+  return data
 }
 
 function updateSavedData (data, context) {
@@ -146,18 +150,8 @@ function updateSavedData (data, context) {
   }
 }
 
-async function getPrompts (id, context) {
-  const task = findOne(id, context)
-  if (task) {
-    await prompts.reset()
-    task.prompts.forEach(prompts.add)
-    const data = getSavedData(id, context)
-    if (data) {
-      await prompts.setAnswers(data.answers)
-    }
-    await prompts.start()
-    return prompts.list()
-  }
+function getPrompts (id, context) {
+  return restoreParameters({ id }, context)
 }
 
 function updateOne (data, context) {
@@ -248,12 +242,6 @@ async function run (id, context) {
     // See: https://www.npmjs.com/package/supports-color
     process.env.FORCE_COLOR = 1
 
-    // Save parameters
-    updateSavedData({
-      id,
-      answers
-    }, context)
-
     // Plugin API
     if (task.onBeforeRun) {
       await task.onBeforeRun({
@@ -304,14 +292,16 @@ async function run (id, context) {
 
     task.time = Date.now()
 
+    // Task env
     process.env.VUE_CLI_CONTEXT = cwd.get()
-
+    process.env.VUE_CLI_PROJECT_ID = projects.getCurrent(context).id
     const nodeEnv = process.env.NODE_ENV
     delete process.env.NODE_ENV
 
     const child = execa(command, args, {
       cwd: cwd.get(),
-      stdio: ['inherit', 'pipe', 'pipe']
+      stdio: ['inherit', 'pipe', 'pipe'],
+      shell: true
     })
 
     if (typeof nodeEnv !== 'undefined') {
@@ -422,6 +412,33 @@ async function run (id, context) {
 
     child.on('exit', onExit)
 
+    child.on('error', error => {
+      const duration = Date.now() - task.time
+      // hackish workaround for https://github.com/vuejs/vue-cli/issues/2096
+      if (process.platform === 'win32' && error.code === 'ENOENT' && duration > WIN_ENOENT_THRESHOLD) {
+        return onExit(null)
+      }
+      updateOne({
+        id: task.id,
+        status: 'error'
+      }, context)
+      logs.add({
+        message: `Error while running task ${task.id} with message'${error.message}'`,
+        type: 'error'
+      }, context)
+      notify({
+        title: `Task error`,
+        message: `Error while running task ${task.id} with message'${error.message}'`,
+        icon: 'error'
+      })
+      addLog({
+        taskId: task.id,
+        type: 'stdout',
+        text: chalk.red(`Error while running task ${task.id} with message '${error.message}'`)
+      }, context)
+      console.error(error)
+    })
+
     // Plugin API
     if (task.onRun) {
       await task.onRun({
@@ -445,11 +462,26 @@ async function run (id, context) {
   return task
 }
 
-function stop (id, context) {
+async function stop (id, context) {
   const task = findOne(id, context)
   if (task && task.status === 'running' && task.child) {
     task._terminating = true
-    terminate(task.child.pid)
+    try {
+      const { success, error } = await terminate(task.child, cwd.get())
+      if (success) {
+        updateOne({
+          id: task.id,
+          status: 'terminated'
+        }, context)
+      } else if (error) {
+        throw error
+      } else {
+        throw new Error('Unknown error')
+      }
+    } catch (e) {
+      console.log(chalk.red(`Can't terminate process ${task.child.pid}`))
+      console.error(e)
+    }
   }
   return task
 }
@@ -523,6 +555,34 @@ function logPipe (action) {
   }
 }
 
+function saveParameters ({ id }, context) {
+  // Answers
+  const answers = prompts.getAnswers()
+
+  // Save parameters
+  updateSavedData({
+    id,
+    answers
+  }, context)
+
+  return prompts.list()
+}
+
+async function restoreParameters ({ id }, context) {
+  const task = findOne(id, context)
+  if (task) {
+    await prompts.reset()
+    task.prompts.forEach(prompts.add)
+    const data = getSavedData(id, context)
+    if (data) {
+      await prompts.setAnswers(data.answers)
+    }
+    await prompts.start()
+  }
+
+  return prompts.list()
+}
+
 module.exports = {
   list,
   findOne,
@@ -531,5 +591,7 @@ module.exports = {
   stop,
   updateOne,
   clearLogs,
-  open
+  open,
+  saveParameters,
+  restoreParameters
 }

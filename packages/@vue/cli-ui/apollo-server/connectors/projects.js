@@ -5,9 +5,8 @@ const Creator = require('@vue/cli/lib/Creator')
 const { getPromptModules } = require('@vue/cli/lib/util/createTools')
 const { getFeatures } = require('@vue/cli/lib/util/features')
 const { defaults } = require('@vue/cli/lib/options')
-const { toShortPluginId } = require('@vue/cli-shared-utils')
+const { toShortPluginId, clearModule } = require('@vue/cli-shared-utils')
 const { progress: installProgress } = require('@vue/cli/lib/util/installDeps')
-const { clearModule } = require('@vue/cli/lib/util/module')
 const parseGitConfig = require('parse-git-config')
 // Connectors
 const progress = require('./progress')
@@ -346,7 +345,7 @@ async function create (input, context) {
 }
 
 async function importProject (input, context) {
-  if (!fs.existsSync(path.join(input.path, 'node_modules'))) {
+  if (!input.force && !fs.existsSync(path.join(input.path, 'node_modules'))) {
     throw new Error('NO_MODULES')
   }
 
@@ -381,7 +380,7 @@ async function open (id, context) {
   // Reset locales
   locales.reset(context)
   // Load plugins
-  plugins.list(project.path, context)
+  await plugins.list(project.path, context)
 
   // Date
   context.db.get('projects').find({ id }).assign({

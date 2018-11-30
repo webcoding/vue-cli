@@ -8,7 +8,8 @@ const descriptions = {
 }
 
 function printScripts (pkg, packageManager) {
-  return Object.keys(pkg.scripts).map(key => {
+  return Object.keys(pkg.scripts || {}).map(key => {
+    if (!descriptions[key]) return ''
     return [
       `\n### ${descriptions[key]}`,
       '```',
@@ -26,6 +27,9 @@ module.exports = function generateReadme (pkg, packageManager) {
     '```',
     `${packageManager} install`,
     '```',
-    printScripts(pkg, packageManager)
+    printScripts(pkg, packageManager),
+    '### Customize configuration',
+    'See [Configuration Reference](https://cli.vuejs.org/config/).',
+    ''
   ].join('\n')
 }

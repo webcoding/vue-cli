@@ -5,13 +5,14 @@ const path = require('path')
 const safariFix = `!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()},!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();`
 
 class ModernModePlugin {
-  constructor (targetDir, isModern) {
+  constructor ({ targetDir, isModernBuild, unsafeInline }) {
     this.targetDir = targetDir
-    this.isModern = isModern
+    this.isModernBuild = isModernBuild
+    this.unsafeInline = unsafeInline
   }
 
   apply (compiler) {
-    if (!this.isModern) {
+    if (!this.isModernBuild) {
       this.applyLegacy(compiler)
     } else {
       this.applyModern(compiler)
@@ -25,7 +26,10 @@ class ModernModePlugin {
         // get stats, write to disk
         await fs.ensureDir(this.targetDir)
         const htmlName = path.basename(data.plugin.options.filename)
-        const tempFilename = path.join(this.targetDir, `legacy-assets-${htmlName}.json`)
+        // Watch out for output files in sub directories
+        const htmlPath = path.dirname(data.plugin.options.filename)
+        const tempFilename = path.join(this.targetDir, htmlPath, `legacy-assets-${htmlName}.json`)
+        await fs.mkdirp(path.dirname(tempFilename))
         await fs.writeFile(tempFilename, JSON.stringify(data.body))
         cb()
       })
@@ -37,36 +41,69 @@ class ModernModePlugin {
     compiler.hooks.compilation.tap(ID, compilation => {
       compilation.hooks.htmlWebpackPluginAlterAssetTags.tapAsync(ID, async (data, cb) => {
         // use <script type="module"> for modern assets
-        const modernAssets = data.body.filter(a => a.tagName === 'script' && a.attributes)
-        modernAssets.forEach(a => {
-          a.attributes.type = 'module'
-          a.attributes.crossorigin = 'use-credentials'
+        data.body.forEach(tag => {
+          if (tag.tagName === 'script' && tag.attributes) {
+            tag.attributes.type = 'module'
+          }
         })
 
-        // inject Safari 10 nomodule fix
-        data.body.push({
-          tagName: 'script',
-          closeTag: true,
-          innerHTML: safariFix
+        // use <link rel="modulepreload"> instead of <link rel="preload">
+        // for modern assets
+        data.head.forEach(tag => {
+          if (tag.tagName === 'link' &&
+              tag.attributes.rel === 'preload' &&
+              tag.attributes.as === 'script') {
+            tag.attributes.rel = 'modulepreload'
+          }
         })
 
         // inject links for legacy assets as <script nomodule>
         const htmlName = path.basename(data.plugin.options.filename)
-        const tempFilename = path.join(this.targetDir, `legacy-assets-${htmlName}.json`)
+        // Watch out for output files in sub directories
+        const htmlPath = path.dirname(data.plugin.options.filename)
+        const tempFilename = path.join(this.targetDir, htmlPath, `legacy-assets-${htmlName}.json`)
         const legacyAssets = JSON.parse(await fs.readFile(tempFilename, 'utf-8'))
           .filter(a => a.tagName === 'script' && a.attributes)
         legacyAssets.forEach(a => { a.attributes.nomodule = '' })
+
+        if (this.unsafeInline) {
+          // inject inline Safari 10 nomodule fix
+          data.body.push({
+            tagName: 'script',
+            closeTag: true,
+            innerHTML: safariFix
+          })
+        } else {
+          // inject the fix as an external script
+          const safariFixPath = legacyAssets[0].attributes.src
+            .split('/')
+            .slice(0, -1)
+            .concat(['safari-nomodule-fix.js'])
+            .join('/')
+          compilation.assets[safariFixPath] = {
+            source: function () {
+              return new Buffer(safariFix)
+            },
+            size: function () {
+              return Buffer.byteLength(safariFix)
+            }
+          }
+          data.body.push({
+            tagName: 'script',
+            closeTag: true,
+            attributes: {
+              src: safariFixPath
+            }
+          })
+        }
+
         data.body.push(...legacyAssets)
         await fs.remove(tempFilename)
         cb()
       })
 
       compilation.hooks.htmlWebpackPluginAfterHtmlProcessing.tap(ID, data => {
-        data.html = data.html
-          // use <link rel="modulepreload"> instead of <link rel="preload">
-          // for modern assets
-          .replace(/(<link as=script .*?)rel=preload>/g, '$1rel=modulepreload crossorigin=use-credentials>')
-          .replace(/\snomodule="">/g, ' nomodule>')
+        data.html = data.html.replace(/\snomodule="">/g, ' nomodule>')
       })
     })
   }

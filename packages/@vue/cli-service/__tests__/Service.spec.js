@@ -62,7 +62,7 @@ test('loading plugins from package.json', () => {
   mockPkg({
     devDependencies: {
       'bar': '^1.0.0',
-      '@vue/cli-plugin-babel': '^3.0.0-rc.3',
+      '@vue/cli-plugin-babel': '^3.2.0',
       'vue-cli-plugin-foo': '^1.0.0'
     }
   })
@@ -91,7 +91,27 @@ test('handle option baseUrl and outputDir correctly', () => {
   })
   const service = createMockService()
   expect(service.projectOptions.baseUrl).toBe('https://foo.com/bar/')
-  expect(service.projectOptions.outputDir).toBe('public')
+  expect(service.projectOptions.outputDir).toBe('/public')
+})
+
+test('normalize baseUrl when relative', () => {
+  mockPkg({
+    vue: {
+      baseUrl: './foo/bar'
+    }
+  })
+  const service = createMockService()
+  expect(service.projectOptions.baseUrl).toBe('foo/bar/')
+})
+
+test('keep baseUrl when empty', () => {
+  mockPkg({
+    vue: {
+      baseUrl: ''
+    }
+  })
+  const service = createMockService()
+  expect(service.projectOptions.baseUrl).toBe('')
 })
 
 test('load project options from vue.config.js', () => {
@@ -211,6 +231,28 @@ test('api: configureWebpack returning object', () => {
 
   const config = service.resolveWebpackConfig()
   expect(config.output.path).toBe('test-dist-3')
+})
+
+test('api: configureWebpack preserve ruleNames', () => {
+  const service = createMockService([
+    {
+      id: 'babel',
+      apply: require('@vue/cli-plugin-babel')
+    },
+    {
+      id: 'test',
+      apply: api => {
+        api.configureWebpack({
+          module: {
+            rules: []
+          }
+        })
+      }
+    }
+  ])
+
+  const config = service.resolveWebpackConfig()
+  expect(config.module.rules[0].__ruleNames).toEqual(['js'])
 })
 
 test('api: configureDevServer', () => {

@@ -3,9 +3,11 @@
   'exit',
   'ipc',
   'logger',
+  'module',
   'object',
   'openBrowser',
   'pluginResolution',
+  'launch',
   'request',
   'spinner',
   'validate'

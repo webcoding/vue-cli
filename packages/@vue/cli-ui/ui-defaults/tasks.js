@@ -1,8 +1,9 @@
 const path = require('path')
 const fs = require('fs-extra')
+const { processStats } = require('./utils/stats')
 
 module.exports = api => {
-  const { getSharedData, setSharedData, removeSharedData, watchSharedData } = api.namespace('org.vue.webpack.')
+  const { getSharedData, setSharedData, removeSharedData } = api.namespace('org.vue.webpack.')
 
   let firstRun = true
   let hadFailed = false
@@ -37,17 +38,12 @@ module.exports = api => {
   // Called when opening a project
   function setupSharedData (mode) {
     resetSharedData(mode)
-    for (const field in fields) {
-      const id = `${mode}-${field}`
-      watchData(id)
-    }
   }
 
   // Called when opening a project
   function setupCommonData () {
     for (const field in commonFields) {
       setSharedData(field, getSharedDataInitialValue(field, commonFields[field]))
-      watchData(field)
     }
   }
 
@@ -58,22 +54,10 @@ module.exports = api => {
     }
   }
 
-  function watchData (id) {
-    watchSharedData(id, (value) => {
-      const project = api.getProject()
-      if (project) {
-        setSharedData(`${project.id}-${id}`, value)
-      }
-    })
-  }
-
   function getSharedDataInitialValue (id, defaultValue, clear) {
     if (!clear) {
-      const project = api.getProject()
-      if (project) {
-        const data = getSharedData(`${project.id}-${id}`)
-        if (data != null) return data.value
-      }
+      const data = getSharedData(id)
+      if (data != null) return data.value
     }
     return defaultValue
   }
@@ -88,9 +72,11 @@ module.exports = api => {
 
         if (data.type === 'stats') {
           // Stats are read from a file
-          const statsFile = path.resolve(process.cwd(), `./node_modules/.stats-${type}.json`)
+          const statsFile = path.resolve(api.getCwd(), `./node_modules/.stats-${type}.json`)
           const value = await fs.readJson(statsFile)
-          setSharedData(id, value)
+          const { stats, analyzer } = processStats(value)
+          setSharedData(id, stats)
+          setSharedData(`${id}-analyzer`, analyzer)
           await fs.remove(statsFile)
         } else if (data.type === 'progress') {
           if (type === 'serve' || !modernMode) {
@@ -198,6 +184,10 @@ module.exports = api => {
           {
             name: 'test',
             value: 'test'
+          },
+          {
+            name: '(unset)',
+            value: ''
           }
         ],
         description: 'org.vue.vue-webpack.tasks.serve.mode'
@@ -205,13 +195,13 @@ module.exports = api => {
       {
         name: 'host',
         type: 'input',
-        default: '0.0.0.0',
+        default: '',
         description: 'org.vue.vue-webpack.tasks.serve.host'
       },
       {
         name: 'port',
         type: 'input',
-        default: 8080,
+        default: undefined,
         description: 'org.vue.vue-webpack.tasks.serve.port'
       },
       {
@@ -274,6 +264,10 @@ module.exports = api => {
           {
             name: 'test',
             value: 'test'
+          },
+          {
+            name: '(unset)',
+            value: ''
           }
         ],
         description: 'org.vue.vue-webpack.tasks.build.mode'
@@ -326,7 +320,7 @@ module.exports = api => {
       if (answers.mode) args.push('--mode', answers.mode)
       if (answers.dest) args.push('--dest', answers.dest)
       if (answers.target) args.push('--target', answers.target)
-      if (answers.name) args.push('--port', answers.name)
+      if (answers.name) args.push('--name', answers.name)
       if (answers.watch) args.push('--watch')
       if (answers.modern) args.push('--modern')
       setSharedData('modern-mode', !!answers.modern)
@@ -368,6 +362,10 @@ module.exports = api => {
           {
             name: 'test',
             value: 'test'
+          },
+          {
+            name: '(unset)',
+            value: ''
           }
         ],
         description: 'org.vue.vue-webpack.tasks.inspect.mode'

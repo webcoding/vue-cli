@@ -3,9 +3,10 @@ const path = require('path')
 
 module.exports = {
   pluginOptions: {
-    graphqlMock: false,
-    apolloEngine: false,
-    graphqlTimeout: 1000000
+    apollo: {
+      enableMocks: false,
+      enableEngine: false
+    }
   },
 
   configureWebpack: {
@@ -25,5 +26,11 @@ module.exports = {
       )
   },
 
-  lintOnSave: undefined
+  css: {
+    loaderOptions: {
+      stylus: {
+        import: ['~@/style/imports']
+      }
+    }
+  }
 }

@@ -12,6 +12,7 @@ fs.ensureDirSync(templateDir)
 fs.writeFileSync(path.resolve(templateDir, 'foo.js'), 'foo(<%- options.n %>)')
 fs.ensureDirSync(path.resolve(templateDir, 'bar'))
 fs.writeFileSync(path.resolve(templateDir, 'bar/bar.js'), 'bar(<%- m %>)')
+fs.writeFileSync(path.resolve(templateDir, 'bar/_bar.js'), '.bar(<%- m %>)')
 fs.writeFileSync(path.resolve(templateDir, 'entry.js'), `
 import foo from 'foo'
 
@@ -22,6 +23,7 @@ new Vue({
 }).$mount('#app')
 `.trim())
 
+// replace stubs
 fs.writeFileSync(path.resolve(templateDir, 'replace.js'), `
 ---
 extend: '${path.resolve(templateDir, 'bar/bar.js')}'
@@ -50,6 +52,11 @@ baz($1)
 qux($1)
 <%# END_REPLACE %>
 `.trim())
+
+// dotfile stubs
+fs.ensureDirSync(path.resolve(templateDir, '_vscode'))
+fs.writeFileSync(path.resolve(templateDir, '_vscode/config.json'), `{}`)
+fs.writeFileSync(path.resolve(templateDir, '_gitignore'), 'foo')
 
 test('api: extendPackage', async () => {
   const generator = new Generator('/', {
@@ -341,8 +348,11 @@ test('api: render fs directory', async () => {
 
   expect(fs.readFileSync('/foo.js', 'utf-8')).toMatch('foo(1)')
   expect(fs.readFileSync('/bar/bar.js', 'utf-8')).toMatch('bar(2)')
+  expect(fs.readFileSync('/bar/.bar.js', 'utf-8')).toMatch('.bar(2)')
   expect(fs.readFileSync('/replace.js', 'utf-8')).toMatch('baz(2)')
   expect(fs.readFileSync('/multi-replace.js', 'utf-8')).toMatch('baz(1)\nqux(2)')
+  expect(fs.readFileSync('/.gitignore', 'utf-8')).toMatch('foo')
+  expect(fs.readFileSync('/.vscode/config.json', 'utf-8')).toMatch('{}')
 })
 
 test('api: render object', async () => {
@@ -641,7 +651,7 @@ test('extract config files', async () => {
   const js = v => `module.exports = ${stringifyJS(v, null, 2)}`
   expect(fs.readFileSync('/vue.config.js', 'utf-8')).toMatch(js(configs.vue))
   expect(fs.readFileSync('/babel.config.js', 'utf-8')).toMatch(js(configs.babel))
-  expect(fs.readFileSync('/.postcssrc.js', 'utf-8')).toMatch(js(configs.postcss))
+  expect(fs.readFileSync('/postcss.config.js', 'utf-8')).toMatch(js(configs.postcss))
   expect(fs.readFileSync('/.eslintrc.js', 'utf-8')).toMatch(js(configs.eslintConfig))
   expect(fs.readFileSync('/jest.config.js', 'utf-8')).toMatch(js(configs.jest))
   expect(fs.readFileSync('/.browserslistrc', 'utf-8')).toMatch('> 1%\nnot <= IE8')

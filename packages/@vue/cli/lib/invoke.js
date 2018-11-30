@@ -7,7 +7,6 @@ const inquirer = require('inquirer')
 const isBinary = require('isbinaryfile')
 const Generator = require('./Generator')
 const { loadOptions } = require('./options')
-const { loadModule } = require('./util/module')
 const { installDeps } = require('./util/installDeps')
 const normalizeFilePaths = require('./util/normalizeFilePaths')
 const {
@@ -17,7 +16,8 @@ const {
   hasProjectGit,
   logWithSpinner,
   stopSpinner,
-  resolvePluginId
+  resolvePluginId,
+  loadModule
 } = require('@vue/cli-shared-utils')
 
 async function readFiles (context) {
@@ -44,8 +44,8 @@ function getPkg (context) {
     throw new Error(`package.json not found in ${chalk.yellow(context)}`)
   }
   const pkg = fs.readJsonSync(pkgPath)
-  if (pkg.vueCli && pkg.vueCli.resolvePlugins) {
-    return getPkg(path.resolve(context, pkg.vueCli.resolvePlugins))
+  if (pkg.vuePlugins && pkg.vuePlugins.resolveFrom) {
+    return getPkg(path.resolve(context, pkg.vuePlugins.resolveFrom))
   }
   return pkg
 }
@@ -81,19 +81,30 @@ async function invoke (pluginName, options = {}, context = process.cwd()) {
     throw new Error(`Plugin ${id} does not have a generator.`)
   }
 
-  // resolve options if no command line options are passed, and the plugin
-  // contains a prompt module.
-  if (!Object.keys(options).length) {
-    const pluginPrompts = loadModule(`${id}/prompts`, context)
+  // resolve options if no command line options (other than --registry) are passed,
+  // and the plugin contains a prompt module.
+  // eslint-disable-next-line prefer-const
+  let { registry, ...pluginOptions } = options
+  if (!Object.keys(pluginOptions).length) {
+    let pluginPrompts = loadModule(`${id}/prompts`, context)
     if (pluginPrompts) {
-      options = await inquirer.prompt(pluginPrompts)
+      if (typeof pluginPrompts === 'function') {
+        pluginPrompts = pluginPrompts(pkg)
+      }
+      if (typeof pluginPrompts.getPrompts === 'function') {
+        pluginPrompts = pluginPrompts.getPrompts(pkg)
+      }
+      pluginOptions = await inquirer.prompt(pluginPrompts)
     }
   }
 
   const plugin = {
     id,
     apply: pluginGenerator,
-    options
+    options: {
+      registry,
+      ...pluginOptions
+    }
   }
 
   await runGenerator(context, plugin, pkg)
@@ -125,9 +136,10 @@ async function runGenerator (context, plugin, pkg = getPkg(context)) {
 
   if (!isTestOrDebug && depsChanged) {
     log(`📦  Installing additional dependencies...`)
+    log()
     const packageManager =
       loadOptions().packageManager || (hasProjectYarn(context) ? 'yarn' : 'npm')
-    await installDeps(context, packageManager)
+    await installDeps(context, packageManager, plugin.options && plugin.options.registry)
   }
 
   if (createCompleteCbs.length) {
@@ -135,12 +147,11 @@ async function runGenerator (context, plugin, pkg = getPkg(context)) {
     for (const cb of createCompleteCbs) {
       await cb()
     }
+    stopSpinner()
+    log()
   }
 
-  stopSpinner()
-
-  log()
-  log(`   Successfully invoked generator for plugin: ${chalk.cyan(plugin.id)}`)
+  log(`${chalk.green('✔')}  Successfully invoked generator for plugin: ${chalk.cyan(plugin.id)}`)
   if (!process.env.VUE_CLI_TEST && hasProjectGit(context)) {
     const { stdout } = await execa('git', [
       'ls-files',

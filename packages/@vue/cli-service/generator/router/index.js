@@ -1,4 +1,4 @@
-module.exports = (api, options) => {
+module.exports = (api, options = {}) => {
   api.injectImports(api.entryFile, `import router from './router'`)
   api.injectRootOptions(api.entryFile, `router`)
   api.extendPackage({
@@ -6,7 +6,10 @@ module.exports = (api, options) => {
       'vue-router': '^3.0.1'
     }
   })
-  api.render('./template')
+  api.render('./template', {
+    historyMode: options.routerHistoryMode,
+    doesCompile: api.hasPlugin('babel') || api.hasPlugin('typescript')
+  })
 
   if (api.invoking) {
     api.postProcessFiles(files => {
